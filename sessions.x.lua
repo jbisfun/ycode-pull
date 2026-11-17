@@ -92,9 +92,11 @@ end
 
 local function open_terminal(w, name)
     local st = w.state
-    ycode.spawn("cd " .. q(st.root) .. " && setsid -f ghostty --working-directory=" .. q(st.root)
-        .. " -e pull session attach " .. q(name) .. " >/dev/null 2>&1", function() end)
-    st.message = "opened " .. name .. " in ghostty (detach with ctrl-\\)"
+    local attach = "cd " .. q(st.root) .. " && pull session attach " .. q(name)
+    ycode.spawn(util.terminal_cmd(attach), function(ok, out)
+        st.message = ok and ("opened " .. name .. " in a terminal (detach with ctrl-\\)")
+            or ("could not open a terminal: " .. out)
+    end)
 end
 
 local function new_session(w)
@@ -197,6 +199,10 @@ end
 
 local function render(w)
     local st = w.state
+    if not st.root then
+        return { "col", w = "full", h = "full", p = 14,
+            { "text", util.NO_ROOT, fg = "warning" } }
+    end
     local now = socket.gettime()
     if now - (st.last_list or 0) > 1.5 then refresh(w) end
     if st.selected and now - (st.last_capture or 0) > 0.7 then capture(w) end

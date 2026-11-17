@@ -15,11 +15,16 @@ local function read_all(path)
 end
 
 -- Start `pull <args>` in the background; output and exit code go to temp files.
+-- Returns the job (to attach an `after` callback), or nil if nothing was started.
 local function start(w, args)
     local st = w.state
-    if st.job then return end
+    if st.job then return nil end
     local root = w.text("root")
     if not root or root:match("^%s*$") then root = st.root end
+    if not root then
+        st.status_line, st.ok = util.NO_ROOT, false
+        return nil
+    end
     local out, code = os.tmpname(), os.tmpname()
     os.remove(code)
     local argv = {}
@@ -30,6 +35,7 @@ local function start(w, args)
     st.job = { label = "pull " .. table.concat(args, " "), out = out, code = code }
     st.output = ""
     st.status_line = "running " .. st.job.label .. " …"
+    return st.job
 end
 
 -- Called every frame: pick up output of the running job.
@@ -57,8 +63,9 @@ local function commit(w)
     end
     local args = { "commit", "-m", msg }
     if w.state.all then table.insert(args, 3, "-a") end
-    start(w, args)
-    w.state.job.after = function(w, code)
+    local job = start(w, args)
+    if not job then return end
+    job.after = function(w, code)
         if code == 0 then w.set_text("msg", "") end
     end
 end
@@ -66,8 +73,9 @@ end
 local function worktree_add(w)
     local name = w.text("wt") or ""
     if name:match("^%s*$") then return end
-    start(w, { "worktree", "add", name })
-    w.state.job.after = function(w, code)
+    local job = start(w, { "worktree", "add", name })
+    if not job then return end
+    job.after = function(w, code)
         if code == 0 then w.set_text("wt", "") end
     end
 end
@@ -98,7 +106,7 @@ local function render(w)
         { "col", p = 8, gap = 6, bg = "panel", border = "border",
             { "row", gap = 6, align = "center",
                 { "text", "root", fg = "muted", w = 40 },
-                { "col", grow = true, { "input", id = "root", placeholder = st.root } },
+                { "col", grow = true, { "input", id = "root", placeholder = st.root or "path to a pull workspace" } },
             },
             { "row", gap = 6,
                 button("Status", function(w) start(w, { "status" }) end, busy),
@@ -139,11 +147,12 @@ end
 %new - Open
     local root = find_root()
     gpui.open_window{
-        title = "pull — " .. root,
+        title = root and ("pull — " .. root) or "pull",
         width = 760, height = 560,
         focus = "msg",
         poll_ms = 250,
-        state = { root = root, output = "", status_line = "ready", all = true },
+        state = { root = root, output = "", status_line = root and "ready" or util.NO_ROOT,
+                  all = true },
         on_key = on_key,
         render = function(w)
             local ok, tree = pcall(render, w)
