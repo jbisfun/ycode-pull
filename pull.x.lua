@@ -3,24 +3,8 @@
 -- Open with ["ycode::Run", { "name": "pull::Open" }] (keymap) or ycode.dispatch("pull::Open").
 -- Commands run in the background (`pull` must be on PATH); output streams into the window.
 
--- Directory containing pullfile.plist: $PULL_ROOT, else walk up from the cwd.
-local function find_root()
-    local env = os.getenv("PULL_ROOT")
-    if env and env ~= "" then return env end
-    local dir = os.getenv("PWD") or "."
-    while dir and dir ~= "" do
-        local f = io.open(dir .. "/pullfile.plist")
-        if f then f:close(); return dir end
-        local parent = dir:match("^(.*)/[^/]+$")
-        if parent == dir then break end
-        dir = parent
-    end
-    return os.getenv("HOME") .. "/jbisfun"
-end
-
-local function sh_quote(s)
-    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
-end
+local util = require("pullutil")
+local find_root, sh_quote = util.find_root, util.sh_quote
 
 local function read_all(path)
     local f = io.open(path)
@@ -123,6 +107,7 @@ local function render(w)
                 button("Push", function(w) start(w, { "push" }) end, busy),
                 button("Worktrees", function(w) start(w, { "worktree", "list" }) end, busy),
                 button("Env", function(w) start(w, { "env" }) end, busy),
+                button("Sessions", function() ycode.dispatch("pull::Sessions") end),
             },
             { "row", gap = 6, align = "center",
                 { "col", grow = true, { "input", id = "msg", placeholder = "commit message (ctrl-enter)" } },
