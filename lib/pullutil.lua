@@ -48,4 +48,13 @@ function M.terminal_cmd(cmd)
         .. 'setsid -f "$@" sh -c ' .. M.sh_quote(cmd) .. " >/dev/null 2>&1"
 end
 
+-- ycode.json_decode turns JSON null into a userdata sentinel; make those nil.
+function M.strip_nulls(t)
+    for k, v in pairs(t) do
+        if type(v) == "userdata" then t[k] = nil
+        elseif type(v) == "table" then M.strip_nulls(v) end
+    end
+    return t
+end
+
 return M

@@ -27,14 +27,7 @@ local function run(w, args, after)
     end)
 end
 
--- ycode.json_decode turns JSON null into a userdata sentinel; make those nil.
-local function strip_nulls(t)
-    for k, v in pairs(t) do
-        if type(v) == "userdata" then t[k] = nil
-        elseif type(v) == "table" then strip_nulls(v) end
-    end
-    return t
-end
+local strip_nulls = util.strip_nulls
 
 local function refresh(w)
     local st = w.state

@@ -90,7 +90,9 @@ local function render(w)
     local st = w.state
     local busy = st.job ~= nil
     local msg = w.text("msg") or ""
-    local over = #msg > 40
+    -- The subject limit comes from the pullfile's lint rules (loaded on open).
+    local max = st.max_subject
+    local over = max ~= nil and #msg > max
 
     local out = { "col", id = "out", scroll = true, grow = true, p = 10, mono = true, size = 12,
                   bg = "editor" }
@@ -119,7 +121,8 @@ local function render(w)
             },
             { "row", gap = 6, align = "center",
                 { "col", grow = true, { "input", id = "msg", placeholder = "commit message (ctrl-enter)" } },
-                { "text", #msg .. "/40", fg = over and "error" or "muted", size = 12, w = 44 },
+                { "text", max and (#msg .. "/" .. max) or tostring(#msg),
+                  fg = over and "error" or "muted", size = 12, w = 44 },
                 button(st.all and "[x] -a" or "[ ] -a", function(w) w.state.all = not w.state.all end),
                 button("Commit", commit, busy),
             },
@@ -146,13 +149,23 @@ end
 %hook pull
 %new - Open
     local root = find_root()
+    local state = { root = root, output = "", all = true,
+                    status_line = root and "ready" or util.NO_ROOT }
+    if root then
+        ycode.spawn(util.pull_cmd(root, { "status", "--json" }), function(ok, out)
+            local okj, data = pcall(ycode.json_decode, ok and out or "")
+            if okj and type(data) == "table" then
+                local lint = util.strip_nulls(data).lint or {}
+                state.max_subject = lint.max_subject_length
+            end
+        end)
+    end
     gpui.open_window{
         title = root and ("pull — " .. root) or "pull",
         width = 760, height = 560,
         focus = "msg",
         poll_ms = 250,
-        state = { root = root, output = "", status_line = root and "ready" or util.NO_ROOT,
-                  all = true },
+        state = state,
         on_key = on_key,
         render = function(w)
             local ok, tree = pcall(render, w)

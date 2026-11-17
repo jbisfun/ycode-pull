@@ -21,6 +21,17 @@ The workspace root is `$PULL_ROOT` (set by `pull shell` / `pull env`), else the 
 working directory; it can be changed in
 the window. `pull` must be on ycode's PATH.
 
+## Changes panel
+
+A "Pull" dock panel (left dock, branch icon; "pull: changes" toggles it) shows every
+repo's changes in one list, grouped by repo, with branch and ahead/behind. Click a file to
+open it; click its box to stage or unstage it (`pull add` / `pull unstage`), or stage a
+whole repo. The commit box sends one message to every repo with staged changes through
+`pull commit` (all tracked changes, `-a`, when nothing is staged), so the pullfile's lint
+rules and hooks apply; the character counter uses the pullfile's subject limit.
+Sync, Update and Push run for the whole workspace. In a pull workspace, Zed's git panel
+(one repository at a time) is hidden.
+
 ## Sessions
 
 "pull: sessions" (or the Sessions button) opens a window listing the workspace's
