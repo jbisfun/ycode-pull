@@ -9,7 +9,8 @@ workspace worktrees. Commands run in the background and stream their output.
 
 ## Install
 
-    ln -s ~/jbisfun/ycode-pull ~/.config/zed/hooks/ycode-pull
+    # from the ycode-pull clone
+    ln -s "$PWD" ~/.config/zed/hooks/ycode-pull
 
 then "ycode: reload hooks". Open it with
 
@@ -23,25 +24,18 @@ the window. `pull` must be on ycode's PATH.
 
 ## Changes panel
 
-A "Pull" dock panel (left dock, branch icon; "pull: changes" toggles it) shows every
-repo's changes in one list, grouped by repo, with branch and ahead/behind. Click a file to
-open it; click its box to stage or unstage it (`pull add` / `pull unstage`), or stage a
-whole repo. The commit box sends one message to every repo with staged changes through
-`pull commit` (all tracked changes, `-a`, when nothing is staged), so the pullfile's lint
-rules and hooks apply; the character counter uses the pullfile's subject limit.
-Sync, Update and Push run for the whole workspace. In a pull workspace, Zed's git panel
-(one repository at a time) is hidden.
+"pull: changes" toggles a left-dock panel with every repo's changes, branch and ahead/behind.
+
+- Click a file to open it; tick it (or a repo) to stage via `pull add` / `pull unstage`.
+- Commit runs `pull commit` (`-a` if nothing is staged), with the pullfile's lint and hooks.
+- Sync, Update and Push act on the whole workspace. Zed's git panel is hidden.
 
 ## Jobs panel
 
-"pull: jobs" (or the Jobs button in the pull window) toggles a bottom-dock panel listing
-the pullfile's `jobs` (including ones not loaded yet) and ad-hoc terminal sessions
-(`pull launchctl` / `pull session`), with what each terminal is running, its directory,
-pid and last exit. The inspector shows the selected terminal's live screen: type into it
-(Run presses enter), send ctrl-c, start / stop / restart, load and start an unloaded job,
-unload a job or remove a session, or open it in your terminal (`$TERMINAL`, else
-`xdg-terminal-exec`, else `x-terminal-emulator`; runs `pull session attach`). New sessions
-start with a shell or a command.
+"pull: jobs" toggles a bottom-dock panel with the pullfile's `jobs` and ad-hoc sessions. The inspector shows the selected terminal live:
+
+- type into it, send ctrl-c, start/stop/restart, load or unload a job, remove a session
+- open it in `$TERMINAL` (via `pull session attach`)
 
 ## MCP
 
