@@ -1,20 +1,14 @@
--- ycode-pull sessions: inspect and control the workspace's terminal sessions and jobs.
+-- ycode-pull jobs: the workspace's launchd jobs and terminal sessions, in a dock panel.
 --
--- Lists `pull session` / launchd jobs with what is running in each (program, directory,
--- pid, last exit), shows the selected session's live screen, and can type into it,
--- send ctrl-c, stop/start/restart it, remove it, open it in a terminal, or start new ones.
--- Open with "pull: sessions" or the Sessions button in the pull window.
+-- Lists the pullfile's `jobs` (also ones not loaded yet) and ad-hoc `pull session`s, with
+-- what each terminal is running (program, directory, pid, last exit). The inspector shows
+-- the selected terminal's live screen; type into it, send ctrl-c, start/stop/restart,
+-- unload or remove it, or open it in your terminal. New sessions start with a shell or a
+-- command. Toggle with "pull: jobs" (bottom dock).
 
 local util = require("pullutil")
 local q = util.sh_quote
 local socket = require("socket")
-
-local function sock_path(root) return root .. "/.pull/launchd.sock" end
-
-local function daemon_running(root)
-    local ok = os.execute("test -S " .. q(sock_path(root)))
-    return ok == true or ok == 0
-end
 
 -- Run `pull <args>` in the background; `after(ok, out)` on the main thread.
 local function run(w, args, after)
@@ -32,13 +26,9 @@ local strip_nulls = util.strip_nulls
 local function refresh(w)
     local st = w.state
     if st.listing then return end
-    st.last_list = socket.gettime()
-    if not daemon_running(st.root) then
-        st.sessions, st.daemon = {}, false
-        return
-    end
-    st.daemon, st.listing = true, true
-    ycode.spawn(util.pull_cmd(st.root, { "session", "ls", "--json" }), function(ok, out)
+    st.last_list, st.listing = socket.gettime(), true
+    -- --all: pullfile jobs that aren't loaded too, without starting the daemon to list.
+    ycode.spawn(util.pull_cmd(st.root, { "launchctl", "list", "--json", "--all" }), function(ok, out)
         st.listing = false
         if not ok then return end
         local okj, list = pcall(ycode.json_decode, out)
@@ -111,12 +101,13 @@ local function new_session(w)
 end
 
 local STATE_COLOR = { running = "success", exited = "muted", stopped = "warning",
-    waiting = "accent", loaded = "muted" }
+    waiting = "accent", loaded = "muted", unloaded = "muted" }
 
 local function session_row(w, s)
     local st = w.state
     local is_sel = s.label == st.selected
     local what = s.foreground and (s.foreground .. " in " .. (s.foreground_cwd or "?"))
+        or (s.state == "unloaded" and table.concat(s.argv or {}, " "))
         or (s.state .. (s.last_exit and (", exit " .. s.last_exit) or ""))
     return { "col", p = 6, gap = 2, rounded = 4, bg = is_sel and "element" or nil,
         on_click = function(w)
@@ -133,6 +124,7 @@ end
 local function details(w, s)
     local st = w.state
     local running = s.state == "running"
+    local unloaded = s.state == "unloaded"
     local function info(k, v) return { "row", gap = 6,
         { "text", k, size = 12, fg = "muted", w = 80 },
         { "text", tostring(v), size = 12, mono = true, grow = true } } end
@@ -145,14 +137,25 @@ local function details(w, s)
         btn("Restart", function(w)
             act(w, { "launchctl", "kickstart", "-k", s.label }, "restarting " .. s.label) end)
         btn("Open in terminal", function(w) open_terminal(w, s.label) end)
+    elseif unloaded then
+        -- Loading the pullfile jobs starts the RunAtLoad ones; then start this one.
+        btn("Load and start", function(w)
+            run(w, { "launchctl", "load" }, function(ok)
+                if ok then act(w, { "launchctl", "kickstart", s.label }, "started " .. s.label) end
+            end)
+        end)
     else
         btn("Start", function(w)
             act(w, { "launchctl", "kickstart", s.label }, "started " .. s.label) end)
     end
-    btn("Remove", function(w)
-        act(w, { "session", "kill", s.label }, "removed " .. s.label)
-        st.selected, st.screen = nil, ""
-    end)
+    if not unloaded then
+        -- A pullfile job stays listed (unloaded); an ad-hoc session is gone.
+        btn(s.pullfile and "Unload" or "Remove", function(w)
+            act(w, { "launchctl", "unload", s.label },
+                (s.pullfile and "unloaded " or "removed ") .. s.label)
+            if not s.pullfile then st.selected, st.screen = nil, "" end
+        end)
+    end
 
     local screen = { "col", id = "screen", scroll = true, grow = true, p = 8, mono = true,
         size = 12, bg = "editor", border = "border", rounded = 4 }
@@ -192,6 +195,7 @@ end
 
 local function render(w)
     local st = w.state
+    if not st.root then st.root = util.find_root() end
     if not st.root then
         return { "col", w = "full", h = "full", p = 14,
             { "text", util.NO_ROOT, fg = "warning" } }
@@ -201,14 +205,22 @@ local function render(w)
     if st.selected and now - (st.last_capture or 0) > 0.7 then capture(w) end
 
     local list = { "col", id = "list", scroll = true, grow = true, gap = 4 }
-    for _, s in ipairs(st.sessions or {}) do list[#list + 1] = session_row(w, s) end
-    if #list == 0 then
-        list[#list + 1] = { "text", st.daemon == false and "no sessions (daemon not running)"
-            or "no sessions", fg = "muted", size = 12 }
+    local function group(title, pullfile)
+        local rows = {}
+        for _, s in ipairs(st.sessions or {}) do
+            if (s.pullfile == true) == pullfile then rows[#rows + 1] = session_row(w, s) end
+        end
+        list[#list + 1] = { "text", title, bold = true, size = 12, fg = "muted" }
+        if #rows == 0 then
+            list[#list + 1] = { "text", pullfile and "no jobs in the pullfile" or "no sessions",
+                fg = "muted", size = 11, px = 6 }
+        end
+        for _, r in ipairs(rows) do list[#list + 1] = r end
     end
+    group("Jobs", true)
+    group("Sessions", false)
 
-    local left = { "col", w = 250, gap = 8, p = 8, bg = "panel", border = "border",
-        { "text", "Sessions", bold = true, size = 15 },
+    local left = { "col", w = 260, gap = 8, p = 8, border = "border",
         list,
         { "input", id = "new_name", placeholder = "new session name" },
         { "input", id = "new_cmd", placeholder = "command (empty: shell)" },
@@ -218,29 +230,32 @@ local function render(w)
     local sel = selected(st)
     local right = sel and details(w, sel)
         or { "col", grow = true, align = "center", justify = "center",
-             { "text", "select a session", fg = "muted" } }
+             { "text", "select a job or session", fg = "muted" } }
 
     return { "col", w = "full", h = "full",
         { "row", grow = true, gap = 8, p = 8, left, right },
-        { "row", px = 10, py = 4, bg = "panel",
+        { "row", px = 10, py = 4,
             { "text", st.message or st.root, size = 12, fg = "muted", grow = true },
             { "text", (st.busy or 0) > 0 and "…" or "", size = 12, fg = "accent" },
         },
     }
 end
 
-%hook pull
-%new - Sessions
-    gpui.open_window{
-        title = "pull sessions",
-        width = 900, height = 600,
+%ctor
+    gpui.register_panel{
+        id = "pull-jobs", title = "Jobs", icon = "terminal", position = "bottom", size = 320,
         poll_ms = 300,
-        state = { root = util.find_root(), sessions = {}, screen = "" },
+        state = { sessions = {}, screen = "" },
         render = function(w)
             local ok, tree = pcall(render, w)
             if ok then return tree end
-            return { "text", "ycode-pull sessions: " .. tostring(tree), fg = "error" }
+            return { "text", "ycode-pull jobs: " .. tostring(tree), fg = "error" }
         end,
     }
+end
+
+%hook pull
+%new - Jobs
+    ycode.dispatch("ycode::TogglePanel", { id = "pull-jobs" })
 end
 %end

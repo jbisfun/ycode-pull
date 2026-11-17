@@ -117,7 +117,7 @@ local function render(w)
                 button("Push", function(w) start(w, { "push" }) end, busy),
                 button("Worktrees", function(w) start(w, { "worktree", "list" }) end, busy),
                 button("Env", function(w) start(w, { "env" }) end, busy),
-                button("Sessions", function() ycode.dispatch("pull::Sessions") end),
+                button("Jobs", function() ycode.dispatch("pull::Jobs") end),
             },
             { "row", gap = 6, align = "center",
                 { "col", grow = true, { "input", id = "msg", placeholder = "commit message (ctrl-enter)" } },

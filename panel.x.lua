@@ -5,7 +5,8 @@
 -- repo with staged changes through `pull commit`, so the pullfile's lint rules and hooks
 -- apply; with nothing staged it commits all tracked changes (-a). Sync, update and push
 -- for the whole workspace. Zed's single-repository git panel button is hidden in pull
--- workspaces. Toggle with "pull: changes".
+-- workspaces, and `pull mcp` is registered as an MCP server for ycode's agents.
+-- Toggle with "pull: changes".
 
 local util = require("pullutil")
 local socket = require("socket")
@@ -192,11 +193,30 @@ end
             return { "text", "ycode-pull: " .. tostring(tree), fg = "error" }
         end,
     }
-    -- In a pull workspace, Zed's git panel (one repository at a time) is replaced by this.
-    -- Workspace folders are known once the windows exist.
-    ycode.spawn("sleep 1", function()
-        if util.find_root() then ycode.settings{ git_panel = { button = false } } end
-    end)
+    -- Once a pull workspace is open (folders appear after startup; retry for a while):
+    -- hide Zed's git panel (one repository at a time; this panel replaces it) and
+    -- register `pull mcp` as an MCP server, which ycode's agent uses and forwards to ACP
+    -- agents such as Hermes.
+    local tries = 0
+    local function setup()
+        local root = util.find_root()
+        if not root then
+            tries = tries + 1
+            if tries < 30 then ycode.spawn("sleep 1", setup) end
+            return
+        end
+        ycode.spawn("command -v pull", function(ok, out)
+            local pull = ok and out:match("[^\n]+") or "pull"
+            ycode.settings{
+                git_panel = { button = false },
+                context_servers = {
+                    pull = { command = pull, args = { "mcp", "--root", root } },
+                },
+            }
+            ycode.log("ycode-pull: " .. root .. ", MCP server registered (" .. pull .. " mcp)")
+        end)
+    end
+    setup()
 end
 
 %hook pull
