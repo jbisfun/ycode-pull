@@ -1,7 +1,7 @@
 -- ycode-pull changes panel: the pull workspace's changes in a dock panel.
 --
 -- Every repo's changed files in one list, grouped by repo. Click a file to open it, click
--- its box to stage/unstage (`pull add` / `pull unstage`). One commit message goes to every
+-- its checkbox to stage/unstage (`pull add` / `pull unstage`). One commit message goes to every
 -- repo with staged changes through `pull commit`, so the pullfile's lint rules and hooks
 -- apply; with nothing staged it commits all tracked changes (-a). Sync, update and push
 -- for the whole workspace. Zed's single-repository git panel button is hidden in pull
@@ -66,22 +66,19 @@ end
 local function change_row(w, repo, c)
     local rel = repo.name .. "/" .. c.path
     local staged, unstaged = is_staged(c), is_unstaged(c)
-    local box = staged and (unstaged and "[-]" or "[x]") or "[ ]"
+    local checked = staged and (unstaged and "mixed" or true) or false
     local letter = staged and c.staged or c.unstaged
     local dir, file = c.path:match("^(.*/)([^/]+)$")
-    local name = { "row", gap = 6, grow = true, on_click = function()
-            ycode.open(repo.path .. "/" .. c.path)
-        end,
-        { "text", file or c.path },
+    local label = { "row", gap = 6, grow = true,
+        { "text", file or c.path, truncate = true },
     }
-    if dir then name[#name + 1] = { "text", dir, fg = "muted", size = 11 } end
-    return { "row", gap = 6, align = "center", px = 6, py = 1,
-        { "text", box, mono = true, fg = staged and "accent" or "muted",
-          on_click = function(w)
-              run(w, { unstaged and "add" or "unstage", rel })
-          end },
-        { "text", letter, mono = true, bold = true, fg = LETTER_COLOR[letter] or "muted", w = 12 },
-        name,
+    if dir then label[#label + 1] = { "text", dir, size = "xsmall", color = "muted", truncate = true } end
+    return { "list_item", indent = 1,
+        on_click = function() ycode.open(repo.path .. "/" .. c.path) end,
+        start = { "checkbox", checked = checked,
+            on_click = function(w) run(w, { unstaged and "add" or "unstage", rel }) end },
+        end_ = { "text", letter, mono = true, bold = true, color = LETTER_COLOR[letter] or "muted" },
+        label,
     }
 end
 
@@ -98,23 +95,30 @@ local function repo_section(w, repo)
         info = info .. string.format("  ↑%d ↓%d", repo.ahead or 0, repo.behind or 0)
     end
     local collapsed = st.collapsed[repo.name]
-    local header = { "row", gap = 6, align = "center", px = 6, py = 3, bg = "element", rounded = 4,
-        { "row", gap = 6, grow = true, align = "center",
-          on_click = function() st.collapsed[repo.name] = not collapsed end,
-            { "text", (collapsed and "▸ " or "▾ ") .. repo.name, bold = true },
-            { "text", info, size = 11, fg = "muted" },
-            { "text", #changes > 0 and tostring(#changes) or "", size = 11, fg = "accent" },
-        },
-    }
+    local function toggle() st.collapsed[repo.name] = not collapsed end
+
+    local actions = { "row", gap = 6, align = "center" }
     if unstaged > 0 then
-        header[#header + 1] = { "button", "Stage all", size = 11,
+        actions[#actions + 1] = { "button", "Stage all", style = "subtle",
             on_click = function(w) run(w, { "add", repo.name }) end }
     end
     if staged > 0 then
-        header[#header + 1] = { "button", "Unstage all", size = 11,
+        actions[#actions + 1] = { "button", "Unstage all", style = "subtle",
             on_click = function(w) run(w, { "unstage", repo.name }) end }
     end
-    local section = { "col", gap = 1, header }
+    if #changes > 0 then
+        actions[#actions + 1] = { "text", tostring(#changes), size = "xsmall", color = "accent" }
+    end
+
+    local header = { "list_item", on_click = toggle,
+        start = { "disclosure", open = not collapsed, on_click = toggle },
+        end_ = actions,
+        { "row", gap = 6, grow = true, align = "center",
+            { "text", repo.name, bold = true },
+            { "text", info, size = "small", color = "muted" },
+        },
+    }
+    local section = { "col", gap = 0, header }
     if not collapsed then
         for _, c in ipairs(changes) do section[#section + 1] = change_row(w, repo, c) end
     end
@@ -134,12 +138,12 @@ end
 local function render(w)
     local st = w.state
     if not root(st) then
-        return { "col", p = 12, { "text", util.NO_ROOT, fg = "muted", size = 12 } }
+        return { "col", p = 12, { "text", util.NO_ROOT, color = "muted", size = "small" } }
     end
     if socket.gettime() - (st.last_refresh or 0) > REFRESH_SECONDS then refresh(st) end
 
     local data = st.data or { repos = {} }
-    local list = { "col", id = "changes", scroll = true, grow = true, gap = 6, p = 6 }
+    local list = { "col", id = "changes", scroll = true, grow = true, gap = 2, p = 4 }
     for _, repo in ipairs(data.repos or {}) do
         if #(repo.changes or {}) > 0 or (repo.ahead or 0) > 0 or not repo.cloned then
             list[#list + 1] = repo_section(w, repo)
@@ -148,7 +152,7 @@ local function render(w)
     local staged, changed = counts(data)
     if #list == 0 then
         list[#list + 1] = { "text", st.data and "no changes in " .. #(data.repos or {}) .. " repos"
-            or (st.error or "loading…"), fg = "muted", size = 12, p = 6 }
+            or (st.error or "loading…"), color = "muted", size = "small", p = 6 }
     end
 
     local lint = data.lint or {}
@@ -159,23 +163,24 @@ local function render(w)
         or "Commit tracked"
 
     return { "col", w = "full", h = "full",
-        { "row", gap = 6, align = "center", px = 8, py = 6, border = "border",
-            { "text", "Pull", bold = true },
-            { "text", changed .. " changed", size = 11, fg = "muted", grow = true },
-            { "button", "Sync", size = 11, on_click = function(w) run(w, { "sync" }) end },
-            { "button", "Update", size = 11, on_click = function(w) run(w, { "update" }) end },
-            { "button", "Push", size = 11, on_click = function(w) run(w, { "push" }) end },
+        { "panel_header", title = "Pull", context = changed .. " changed",
+            { "icon_button", icon = "rotate_cw", tooltip = "Sync",
+              on_click = function(w) run(w, { "sync" }) end },
+            { "icon_button", icon = "cloud_download", tooltip = "Update",
+              on_click = function(w) run(w, { "update" }) end },
+            { "icon_button", icon = "arrow_up", tooltip = "Push",
+              on_click = function(w) run(w, { "push" }) end },
         },
         list,
         { "col", gap = 6, p = 8, border = "border",
             { "input", id = "msg", placeholder = "commit message (ctrl-enter)" },
             { "row", gap = 6, align = "center",
-                { "text", counter, size = 11, grow = true,
-                  fg = (max and #msg > max) and "error" or "muted" },
-                { "button", label, on_click = commit },
+                { "text", counter, size = "small", grow = true,
+                  color = (max and #msg > max) and "error" or "muted" },
+                { "button", label, style = "filled", on_click = commit },
             },
-            { "text", st.message or st.root, size = 11, mono = true,
-              fg = st.failed and "error" or "muted" },
+            { "text", st.message or st.root, size = "small", mono = true,
+              color = st.failed and "error" or "muted" },
         },
     }
 end
