@@ -113,11 +113,10 @@ local function session_row(w, s)
         on_click = function(w)
             st.selected, st.screen, st.last_capture = s.label, "", 0
         end,
-        start = { "icon", name = "circle", color = STATE_COLOR[s.state] or "muted" },
-        end_ = { "text", s.state, size = "small", color = STATE_COLOR[s.state] or "muted" },
-        { "col",
-            { "text", s.label, bold = true, truncate = true },
-            { "text", what, size = "small", mono = true, color = "muted", truncate = true },
+        start = { "icon", name = "circle", size = "xsmall", color = STATE_COLOR[s.state] or "muted" },
+        { "row", gap = 6,
+            { "text", s.label, truncate = true },
+            { "text", what, size = "small", color = "muted", truncate = true },
         },
     }
 end
@@ -127,10 +126,10 @@ local function details(w, s)
     local running = s.state == "running"
     local unloaded = s.state == "unloaded"
     local function info(k, v) return { "row", gap = 6,
-        { "text", k, size = "small", fg = "muted", w = 80 },
-        { "text", tostring(v), size = "small", mono = true, grow = true } } end
+        { "text", k, size = "small", color = "muted", w = 64 },
+        { "text", tostring(v), size = "small", grow = true, truncate = true } } end
 
-    local controls = { "row", gap = 6 }
+    local controls = { "row", gap = 2 }
     local function ibtn(icon, tooltip, f)
         controls[#controls + 1] = { "icon_button", icon = icon, tooltip = tooltip, on_click = f }
     end
@@ -166,17 +165,20 @@ local function details(w, s)
         screen[#screen + 1] = { "text", line == "" and " " or line }
     end
 
-    local col = { "col", grow = true, gap = 6,
-        { "row", gap = 8, align = "center",
-            { "text", s.label, bold = true, size = "large", grow = true },
-            { "text", s.state, fg = STATE_COLOR[s.state] or "muted" },
-        },
+    local title = { "row", gap = 6,
+        { "icon", name = "circle", size = "xsmall", color = STATE_COLOR[s.state] or "muted" },
+        { "text", s.label, bold = true },
+        { "text", s.state, size = "small", color = STATE_COLOR[s.state] or "muted", grow = true },
+    }
+    for _, c in ipairs(controls) do if type(c) == "table" then title[#title + 1] = c end end
+
+    local col = { "col", grow = true, h = "full", gap = 4, p = 8,
+        title,
         info("running", s.foreground and (s.foreground .. " in " .. (s.foreground_cwd or "?")) or "-"),
         info("program", table.concat(s.argv or {}, " ")),
         info("pid", s.pid or "-"),
         info("runs", (s.runs or 0) .. (s.last_exit and (", last exit " .. s.last_exit) or "")),
         info("attached", s.attached or 0),
-        controls,
         screen,
     }
     if running then
@@ -215,32 +217,40 @@ local function render(w)
         end
         list[#list + 1] = { "list_header", title, sub = true }
         if #rows == 0 then
-            list[#list + 1] = { "text", pullfile and "no jobs in the pullfile" or "no sessions",
-                fg = "muted", size = "small" }
+            list[#list + 1] = { "list_item", indent = 1,
+                { "text", pullfile and "no jobs in the pullfile" or "no sessions",
+                  color = "muted", size = "small" } }
         end
         for _, r in ipairs(rows) do list[#list + 1] = r end
     end
     group("Jobs", true)
     group("Sessions", false)
 
-    local left = { "col", w = 260, gap = 8, p = 8, border = "border",
+    local left = { "col", w = 260, h = "full",
         list,
-        { "input", id = "new_name", placeholder = "new session name" },
-        { "input", id = "new_cmd", placeholder = "command (empty: shell)" },
-        { "button", "New session", on_click = new_session },
+        { "divider" },
+        { "col", gap = 4, p = 8,
+            { "input", id = "new_name", placeholder = "new session name" },
+            { "row", gap = 4,
+                { "col", grow = true, { "input", id = "new_cmd", placeholder = "command (empty: shell)" } },
+                { "icon_button", icon = "plus", tooltip = "New session", on_click = new_session } },
+        },
     }
 
     local sel = selected(st)
     local right = sel and details(w, sel)
-        or { "col", grow = true, align = "center", justify = "center",
-             { "text", "select a job or session", fg = "muted" } }
+        or { "col", grow = true, h = "full", align = "center", justify = "center",
+             { "text", "select a job or session", size = "small", color = "muted" } }
 
+    local status = { "row", px = 8, py = 4,
+        { "text", st.message or st.root, size = "small", color = "muted", grow = true, truncate = true } }
+    if (st.busy or 0) > 0 then
+        status[#status + 1] = { "icon", name = "arrow_circle", size = "small", color = "muted" }
+    end
     return { "col", w = "full", h = "full",
-        { "row", grow = true, gap = 8, p = 8, left, right },
-        { "row", px = 10, py = 4,
-            { "text", st.message or st.root, size = "small", fg = "muted", grow = true },
-            { "text", (st.busy or 0) > 0 and "…" or "", size = "small", fg = "accent" },
-        },
+        { "row", grow = true, left, { "divider", vertical = true }, right },
+        { "divider" },
+        status,
     }
 end
 
