@@ -5,7 +5,8 @@
 -- repo with staged changes through `pull commit`, so the pullfile's lint rules and hooks
 -- apply; with nothing staged it commits all tracked changes (-a). Sync, update and push
 -- for the whole workspace. Zed's single-repository git panel button is hidden in pull
--- workspaces, and `pull mcp` is registered as an MCP server for ycode's agents.
+-- workspaces, and every MCP server from `pull mcp-servers` (pull itself, plus the
+-- pullfile's `mcp_servers` section, e.g. radar) is registered for ycode's agents.
 -- Toggle with "pull: changes".
 
 local util = require("pullutil")
@@ -195,8 +196,9 @@ end
     }
     -- Once a pull workspace is open (folders appear after startup; retry for a while):
     -- hide Zed's git panel (one repository at a time; this panel replaces it) and
-    -- register `pull mcp` as an MCP server, which ycode's agent uses and forwards to ACP
-    -- agents such as Hermes.
+    -- register every MCP server the pullfile configures (`pull mcp-servers --json`:
+    -- `pull` itself, plus the `mcp_servers` section, e.g. radar), which ycode's agent
+    -- uses and forwards to ACP agents such as Hermes.
     local tries = 0
     local function setup()
         local root = util.find_root()
@@ -205,15 +207,26 @@ end
             if tries < 30 then ycode.spawn("sleep 1", setup) end
             return
         end
-        ycode.spawn("command -v pull", function(ok, out)
-            local pull = ok and out:match("[^\n]+") or "pull"
+        ycode.spawn(util.pull_cmd(root, { "mcp-servers" }), function(ok, out)
+            if not ok then
+                ycode.log("ycode-pull: `pull mcp-servers` failed: " .. out)
+                return
+            end
+            local okj, servers = pcall(ycode.json_decode, out)
+            if not okj or type(servers) ~= "table" then
+                ycode.log("ycode-pull: bad mcp-servers json: " .. tostring(servers))
+                return
+            end
+            util.strip_nulls(servers)
             ycode.settings{
                 git_panel = { button = false },
-                context_servers = {
-                    pull = { command = pull, args = { "mcp", "--root", root } },
-                },
+                context_servers = servers,
             }
-            ycode.log("ycode-pull: " .. root .. ", MCP server registered (" .. pull .. " mcp)")
+            local names = {}
+            for name in pairs(servers) do names[#names + 1] = name end
+            table.sort(names)
+            ycode.log("ycode-pull: " .. root .. ", MCP servers registered (" ..
+                table.concat(names, ", ") .. ")")
         end)
     end
     setup()

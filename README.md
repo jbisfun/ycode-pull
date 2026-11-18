@@ -39,7 +39,16 @@ the window. `pull` must be on ycode's PATH.
 
 ## MCP
 
-In a pull workspace the plugin registers `pull mcp --root <root>` as an MCP server
-(`context_servers.pull`, in-memory settings layer), so ycode's agent gets pull's
-workspace, search, exec and terminal-session tools; ycode forwards it to ACP agents such
-as Hermes too.
+In a pull workspace the plugin runs `pull mcp-servers` and registers every server it
+returns (`context_servers`, in-memory settings layer): `pull mcp --root <root>` itself
+(workspace, search, exec and terminal-session tools) plus whatever the pullfile's
+`mcp_servers` section configures, e.g.
+
+    <key>mcp_servers</key>
+    <dict>
+        <key>radar</key>
+        <dict><key>args</key><array><string>mcp</string></array></dict>
+    </dict>
+
+(`command` defaults to the section key, resolved on PATH; `PULL_ROOT` is set for these).
+ycode forwards all of it to ACP agents such as Hermes too.
