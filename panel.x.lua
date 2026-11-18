@@ -66,23 +66,16 @@ end
 local function change_row(w, repo, c)
     local rel = repo.name .. "/" .. c.path
     local staged, unstaged = is_staged(c), is_unstaged(c)
-    local checked = staged and (unstaged and "mixed" or true) or false
     local letter = staged and c.staged or c.unstaged
     local dir, file = c.path:match("^(.*/)([^/]+)$")
-    local label = { "row", gap = 6, grow = true,
-        { "text", file or c.path, truncate = true },
-    }
-    if dir then label[#label + 1] = { "text", dir, size = "xsmall", color = "muted", truncate = true } end
-    return { "list_item", indent = 1,
-        on_click = function() ycode.open(repo.path .. "/" .. c.path) end,
-        start = { "checkbox", checked = checked,
+    return { "list_item", file or c.path, detail = dir, indent = 1, tooltip = rel,
+        start = { "checkbox", checked = staged and (unstaged and "mixed" or true) or false,
             on_click = function(w) run(w, { unstaged and "add" or "unstage", rel }) end },
-        end_ = { "text", letter, mono = true, bold = true, color = LETTER_COLOR[letter] or "muted" },
-        label,
-    }
+        end_ = { "text", letter, mono = true, size = "small", color = LETTER_COLOR[letter] or "muted" },
+        on_click = function() ycode.open(repo.path .. "/" .. c.path) end }
 end
 
-local function repo_section(w, repo)
+local function repo_rows(w, repo, out)
     local st = w.state
     local changes = repo.changes or {}
     local staged, unstaged = 0, 0
@@ -97,32 +90,23 @@ local function repo_section(w, repo)
     local collapsed = st.collapsed[repo.name]
     local function toggle() st.collapsed[repo.name] = not collapsed end
 
-    local actions = { "row", gap = 6, align = "center" }
+    -- Stage/unstage all appear on hover in place of the change count.
+    local hover = { "row" }
     if unstaged > 0 then
-        actions[#actions + 1] = { "button", "Stage all", style = "subtle",
+        hover[#hover + 1] = { "icon_button", icon = "plus", tooltip = "Stage all",
             on_click = function(w) run(w, { "add", repo.name }) end }
     end
     if staged > 0 then
-        actions[#actions + 1] = { "button", "Unstage all", style = "subtle",
+        hover[#hover + 1] = { "icon_button", icon = "dash", tooltip = "Unstage all",
             on_click = function(w) run(w, { "unstage", repo.name }) end }
     end
-    if #changes > 0 then
-        actions[#actions + 1] = { "text", tostring(#changes), size = "xsmall", color = "accent" }
-    end
-
-    local header = { "list_item", on_click = toggle,
+    out[#out + 1] = { "list_item", repo.name, detail = info, bold = true, on_click = toggle,
         start = { "disclosure", open = not collapsed, on_click = toggle },
-        end_ = actions,
-        { "row", gap = 6, grow = true, align = "center",
-            { "text", repo.name, bold = true },
-            { "text", info, size = "small", color = "muted" },
-        },
-    }
-    local section = { "col", gap = 0, header }
+        end_ = #changes > 0 and { "text", tostring(#changes), size = "small", color = "muted" } or nil,
+        end_hover = #hover > 1 and hover or nil }
     if not collapsed then
-        for _, c in ipairs(changes) do section[#section + 1] = change_row(w, repo, c) end
+        for _, c in ipairs(changes) do out[#out + 1] = change_row(w, repo, c) end
     end
-    return section
 end
 
 local function commit(w)
@@ -137,22 +121,16 @@ end
 
 local function render(w)
     local st = w.state
-    if not root(st) then
-        return { "col", p = 12, { "text", util.NO_ROOT, color = "muted", size = "small" } }
-    end
+    if not root(st) then return { "empty", util.NO_ROOT } end
     if socket.gettime() - (st.last_refresh or 0) > REFRESH_SECONDS then refresh(st) end
 
     local data = st.data or { repos = {} }
-    local list = { "col", id = "changes", scroll = true, grow = true, gap = 2, p = 4 }
+    local staged, changed = counts(data)
+    local rows = {}
     for _, repo in ipairs(data.repos or {}) do
         if #(repo.changes or {}) > 0 or (repo.ahead or 0) > 0 or not repo.cloned then
-            list[#list + 1] = repo_section(w, repo)
+            repo_rows(w, repo, rows)
         end
-    end
-    local staged, changed = counts(data)
-    if #list == 0 then
-        list[#list + 1] = { "text", st.data and "no changes in " .. #(data.repos or {}) .. " repos"
-            or (st.error or "loading…"), color = "muted", size = "small", p = 6 }
     end
 
     local lint = data.lint or {}
@@ -162,27 +140,30 @@ local function render(w)
     local label = staged > 0 and ("Commit " .. staged .. (staged == 1 and " file" or " files"))
         or "Commit tracked"
 
-    return { "col", w = "full", h = "full",
-        { "panel_header", title = "Pull", context = changed .. " changed",
+    local panel = { "panel", id = "changes",
+        header = { title = "Pull", context = changed .. " changed", actions = {
             { "icon_button", icon = "rotate_cw", tooltip = "Sync",
               on_click = function(w) run(w, { "sync" }) end },
             { "icon_button", icon = "cloud_download", tooltip = "Update",
               on_click = function(w) run(w, { "update" }) end },
             { "icon_button", icon = "arrow_up", tooltip = "Push",
-              on_click = function(w) run(w, { "push" }) end },
-        },
-        list,
-        { "col", gap = 6, p = 8, border = "border",
+              on_click = function(w) run(w, { "push" }) end } } },
+        footer = { "col", grow = true, gap = "sm", py = "xs",
             { "input", id = "msg", placeholder = "commit message (ctrl-enter)" },
-            { "row", gap = 6, align = "center",
+            { "row", gap = "sm",
                 { "text", counter, size = "small", grow = true,
                   color = (max and #msg > max) and "error" or "muted" },
-                { "button", label, style = "filled", on_click = commit },
-            },
-            { "text", st.message or st.root, size = "small", mono = true,
-              color = st.failed and "error" or "muted" },
-        },
+                { "button", label, style = "filled", disabled = changed == 0, on_click = commit } },
+            { "text", st.message or st.root, size = "small", truncate = true,
+              color = st.failed and "error" or "muted" } },
     }
+    if #rows == 0 then
+        panel[#panel + 1] = { "empty", st.data and ("no changes in " .. #(data.repos or {}) .. " repos")
+            or (st.error or "loading…") }
+    else
+        for _, r in ipairs(rows) do panel[#panel + 1] = r end
+    end
+    return panel
 end
 
 %ctor
@@ -196,7 +177,7 @@ end
         render = function(w)
             local ok, tree = pcall(render, w)
             if ok then return tree end
-            return { "text", "ycode-pull: " .. tostring(tree), fg = "error" }
+            return { "empty", "ycode-pull: " .. tostring(tree), color = "error" }
         end,
     }
     -- Once a pull workspace is open (folders appear after startup; retry for a while):

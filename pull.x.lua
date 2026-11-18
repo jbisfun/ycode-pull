@@ -80,9 +80,8 @@ local function worktree_add(w)
     end
 end
 
-local function button(label, f, disabled)
-    return { "button", label, on_click = not disabled and f or nil,
-             fg = disabled and "muted" or nil }
+local function button(label, f, disabled, style)
+    return { "button", label, style = style, disabled = disabled, on_click = f }
 end
 
 local function render(w)
@@ -94,48 +93,42 @@ local function render(w)
     local max = st.max_subject
     local over = max ~= nil and #msg > max
 
-    local out = { "col", id = "out", scroll = true, grow = true, p = 10, mono = true, size = 12,
-                  bg = "editor" }
+    local out = { "col", id = "out", scroll = true, grow = true, p = "md", bg = "editor" }
     for line in (st.output .. "\n"):gmatch("(.-)\n") do
-        local fg
-        if line:match("^pull:") or line:match("^lint:") then fg = "error"
-        elseif line:match("^%[") then fg = "muted"
-        elseif line:match("^  ") then fg = "accent" end
-        out[#out + 1] = { "text", line, fg = fg }
+        local color
+        if line:match("^pull:") or line:match("^lint:") then color = "error"
+        elseif line:match("^%[") then color = "muted"
+        elseif line:match("^  ") then color = "accent" end
+        out[#out + 1] = { "text", line == "" and " " or line, mono = true, size = "small", color = color }
     end
 
-    return { "col", w = "full", h = "full",
-        { "col", p = 8, gap = 6, bg = "panel", border = "border",
-            { "row", gap = 6, align = "center",
-                { "text", "root", fg = "muted", w = 40 },
-                { "col", grow = true, { "input", id = "root", placeholder = st.root or "path to a pull workspace" } },
-            },
-            { "row", gap = 6,
+    return { "panel", scroll = false,
+        footer = st.status_line, color = busy and "accent" or (st.ok == false and "error" or nil),
+        { "col", gap = "sm", py = "sm",
+            { "row", gap = "sm", px = "md",
+                { "text", "Root", size = "small", color = "muted" },
+                { "input", id = "root", grow = true, placeholder = st.root or "path to a pull workspace" } },
+            { "toolbar",
                 button("Status", function(w) start(w, { "status" }) end, busy),
                 button("Sync", function(w) start(w, { "sync" }) end, busy),
                 button("Update", function(w) start(w, { "update" }) end, busy),
                 button("Push", function(w) start(w, { "push" }) end, busy),
                 button("Worktrees", function(w) start(w, { "worktree", "list" }) end, busy),
                 button("Env", function(w) start(w, { "env" }) end, busy),
-                button("Jobs", function() ycode.dispatch("pull::Jobs") end),
-            },
-            { "row", gap = 6, align = "center",
-                { "col", grow = true, { "input", id = "msg", placeholder = "commit message (ctrl-enter)" } },
-                { "text", max and (#msg .. "/" .. max) or tostring(#msg),
-                  fg = over and "error" or "muted", size = 12, w = 44 },
-                button(st.all and "[x] -a" or "[ ] -a", function(w) w.state.all = not w.state.all end),
-                button("Commit", commit, busy),
-            },
-            { "row", gap = 6, align = "center",
-                { "col", grow = true, { "input", id = "wt", placeholder = "new worktree name" } },
-                button("Add worktree", worktree_add, busy),
-            },
+                button("Jobs", function() ycode.dispatch("pull::Jobs") end) },
+            { "row", gap = "sm", px = "md",
+                { "input", id = "msg", grow = true, placeholder = "commit message (ctrl-enter)" },
+                { "text", max and (#msg .. "/" .. max) or tostring(#msg), size = "small",
+                  color = over and "error" or "muted" },
+                { "checkbox", label = "-a", checked = st.all == true,
+                  on_click = function(w) w.state.all = not w.state.all end },
+                button("Commit", commit, busy, "filled") },
+            { "row", gap = "sm", px = "md",
+                { "input", id = "wt", grow = true, placeholder = "new worktree name" },
+                button("Add worktree", worktree_add, busy) },
         },
+        { "divider" },
         out,
-        { "row", px = 10, py = 4, bg = "panel",
-            { "text", st.status_line, size = 12,
-              fg = busy and "accent" or (st.ok == false and "error" or "muted") },
-        },
     }
 end
 
@@ -170,7 +163,7 @@ end
         render = function(w)
             local ok, tree = pcall(render, w)
             if ok then return tree end
-            return { "text", "ycode-pull: " .. tostring(tree), fg = "error" }
+            return { "empty", "ycode-pull: " .. tostring(tree), color = "error" }
         end,
     }
 end

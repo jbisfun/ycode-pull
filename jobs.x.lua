@@ -105,88 +105,74 @@ local STATE_COLOR = { running = "success", exited = "muted", stopped = "warning"
 
 local function session_row(w, s)
     local st = w.state
-    local is_sel = s.label == st.selected
     local what = s.foreground and (s.foreground .. " in " .. (s.foreground_cwd or "?"))
         or (s.state == "unloaded" and table.concat(s.argv or {}, " "))
         or (s.state .. (s.last_exit and (", exit " .. s.last_exit) or ""))
-    return { "list_item", selected = is_sel,
+    return { "list_item", s.label, detail = what, selected = s.label == st.selected,
+        start = { "icon", name = "circle", size = "xsmall", color = STATE_COLOR[s.state] or "muted" },
         on_click = function(w)
             st.selected, st.screen, st.last_capture = s.label, "", 0
-        end,
-        start = { "icon", name = "circle", size = "xsmall", color = STATE_COLOR[s.state] or "muted" },
-        { "row", gap = 6,
-            { "text", s.label, truncate = true },
-            { "text", what, size = "small", color = "muted", truncate = true },
-        },
-    }
+        end }
 end
 
-local function details(w, s)
+local function controls(w, s)
     local st = w.state
-    local running = s.state == "running"
-    local unloaded = s.state == "unloaded"
-    local function info(k, v) return { "row", gap = 6,
-        { "text", k, size = "small", color = "muted", w = 64 },
-        { "text", tostring(v), size = "small", grow = true, truncate = true } } end
-
-    local controls = { "row", gap = 2 }
-    local function ibtn(icon, tooltip, f)
-        controls[#controls + 1] = { "icon_button", icon = icon, tooltip = tooltip, on_click = f }
+    local out = {}
+    local function btn(icon, tooltip, f)
+        out[#out + 1] = { "icon_button", icon = icon, tooltip = tooltip, on_click = f }
     end
-    if running then
-        ibtn("control", "Send Ctrl-C", function(w) send(w, "\3", false, "sent ctrl-c to " .. s.label) end)
-        ibtn("stop", "Stop", function(w) act(w, { "launchctl", "stop", s.label }, "stopped " .. s.label) end)
-        ibtn("rotate_cw", "Restart", function(w)
+    if s.state == "running" then
+        btn("control", "Send Ctrl-C", function(w) send(w, "\3", false, "sent ctrl-c to " .. s.label) end)
+        btn("stop", "Stop", function(w) act(w, { "launchctl", "stop", s.label }, "stopped " .. s.label) end)
+        btn("rotate_cw", "Restart", function(w)
             act(w, { "launchctl", "kickstart", "-k", s.label }, "restarting " .. s.label) end)
-        ibtn("terminal", "Open in terminal", function(w) open_terminal(w, s.label) end)
-    elseif unloaded then
+        btn("terminal", "Open in terminal", function(w) open_terminal(w, s.label) end)
+    elseif s.state == "unloaded" then
         -- Loading the pullfile jobs starts the RunAtLoad ones; then start this one.
-        ibtn("play_filled", "Load and start", function(w)
+        btn("play_filled", "Load and start", function(w)
             run(w, { "launchctl", "load" }, function(ok)
                 if ok then act(w, { "launchctl", "kickstart", s.label }, "started " .. s.label) end
             end)
         end)
     else
-        ibtn("play_filled", "Start", function(w)
+        btn("play_filled", "Start", function(w)
             act(w, { "launchctl", "kickstart", s.label }, "started " .. s.label) end)
     end
-    if not unloaded then
+    if s.state ~= "unloaded" then
         -- A pullfile job stays listed (unloaded); an ad-hoc session is gone.
-        ibtn(s.pullfile and "power" or "trash", s.pullfile and "Unload" or "Remove", function(w)
+        btn(s.pullfile and "power" or "trash", s.pullfile and "Unload" or "Remove", function(w)
             act(w, { "launchctl", "unload", s.label },
                 (s.pullfile and "unloaded " or "removed ") .. s.label)
             if not s.pullfile then st.selected, st.screen = nil, "" end
         end)
     end
+    return out
+end
 
-    local screen = { "col", id = "screen", scroll = true, grow = true, mono = true,
-        size = "small", bg = "editor", border = "border", rounded = 4 }
+local function details(w, s)
+    local st = w.state
+    local program = table.concat(s.argv or {}, " ")
+    local facts = { "pid " .. (s.pid or "-"), (s.runs or 0) .. " runs" }
+    if s.last_exit then facts[#facts + 1] = "last exit " .. s.last_exit end
+    if (s.attached or 0) > 0 then facts[#facts + 1] = s.attached .. " attached" end
+
+    local screen = { "col", id = "screen", scroll = true, grow = true, mono = true, size = "small",
+        p = "sm", bg = "editor", border = true, rounded = true }
     for line in ((st.screen or "") .. "\n"):gmatch("(.-)\n") do
-        screen[#screen + 1] = { "text", line == "" and " " or line }
+        screen[#screen + 1] = { "text", line == "" and " " or line, mono = true, size = "small" }
     end
 
-    local title = { "row", gap = 6,
-        { "icon", name = "circle", size = "xsmall", color = STATE_COLOR[s.state] or "muted" },
-        { "text", s.label, bold = true },
-        { "text", s.state, size = "small", color = STATE_COLOR[s.state] or "muted", grow = true },
-    }
-    for _, c in ipairs(controls) do if type(c) == "table" then title[#title + 1] = c end end
-
-    local col = { "col", grow = true, h = "full", gap = 4, p = 8,
-        title,
-        info("running", s.foreground and (s.foreground .. " in " .. (s.foreground_cwd or "?")) or "-"),
-        info("program", table.concat(s.argv or {}, " ")),
-        info("pid", s.pid or "-"),
-        info("runs", (s.runs or 0) .. (s.last_exit and (", last exit " .. s.last_exit) or "")),
-        info("attached", s.attached or 0),
+    local body = { "col", grow = true, gap = "sm", px = "md", py = "sm",
+        { "text", s.foreground and (s.foreground .. " in " .. (s.foreground_cwd or "?")) or program,
+          size = "small", mono = true, color = "muted", truncate = true },
+        { "text", table.concat(facts, " · "), size = "small", color = "muted" },
         screen,
     }
-    if running then
-        col[#col + 1] = { "row", gap = 6, align = "center",
-            { "col", grow = true, { "input", id = "send", placeholder = "type into " .. s.label } },
-            { "icon_button", icon = "return", tooltip = "Run (press enter)", on_click = function(w)
-                local t = w.text("send") or ""
-                send(w, t, true)
+    if s.state == "running" then
+        body[#body + 1] = { "row", gap = "xs",
+            { "input", id = "send", placeholder = "type into " .. s.label, grow = true },
+            { "icon_button", icon = "return", tooltip = "Run (sends enter)", on_click = function(w)
+                send(w, w.text("send") or "", true)
                 w.set_text("send", "")
             end },
             { "icon_button", icon = "send", tooltip = "Type (no enter)", on_click = function(w)
@@ -195,63 +181,41 @@ local function details(w, s)
             end },
         }
     end
-    return col
+    return { "panel", scroll = false,
+        header = { title = s.label, context = s.state, actions = controls(w, s) },
+        body }
 end
 
 local function render(w)
     local st = w.state
     if not st.root then st.root = util.find_root() end
-    if not st.root then
-        return { "col", w = "full", h = "full", p = 14,
-            { "text", util.NO_ROOT, fg = "warning" } }
-    end
+    if not st.root then return { "empty", util.NO_ROOT, color = "warning" } end
     local now = socket.gettime()
     if now - (st.last_list or 0) > 1.5 then refresh(w) end
     if st.selected and now - (st.last_capture or 0) > 0.7 then capture(w) end
 
-    local list = { "col", id = "list", scroll = true, grow = true }
     local function group(title, pullfile)
-        local rows = {}
+        local sec = { "section", title, empty = pullfile and "no jobs in the pullfile" or "no sessions" }
         for _, s in ipairs(st.sessions or {}) do
-            if (s.pullfile == true) == pullfile then rows[#rows + 1] = session_row(w, s) end
+            if (s.pullfile == true) == pullfile then sec[#sec + 1] = session_row(w, s) end
         end
-        list[#list + 1] = { "list_header", title, sub = true }
-        if #rows == 0 then
-            list[#list + 1] = { "list_item", indent = 1,
-                { "text", pullfile and "no jobs in the pullfile" or "no sessions",
-                  color = "muted", size = "small" } }
-        end
-        for _, r in ipairs(rows) do list[#list + 1] = r end
+        return sec
     end
-    group("Jobs", true)
-    group("Sessions", false)
 
-    local left = { "col", w = 260, h = "full",
-        list,
-        { "divider" },
-        { "col", gap = 4, p = 8,
-            { "input", id = "new_name", placeholder = "new session name" },
-            { "row", gap = 4,
-                { "col", grow = true, { "input", id = "new_cmd", placeholder = "command (empty: shell)" } },
-                { "icon_button", icon = "plus", tooltip = "New session", on_click = new_session } },
-        },
+    local sidebar = { "panel", id = "jobs-list",
+        footer = { "row", gap = "xs", grow = true,
+            { "col", grow = true, gap = "xs",
+                { "input", id = "new_name", placeholder = "new session name" },
+                { "input", id = "new_cmd", placeholder = "command (empty: shell)" } },
+            { "icon_button", icon = "plus", tooltip = "New session", on_click = new_session } },
+        group("Jobs", true),
+        group("Sessions", false),
     }
 
     local sel = selected(st)
-    local right = sel and details(w, sel)
-        or { "col", grow = true, h = "full", align = "center", justify = "center",
-             { "text", "select a job or session", size = "small", color = "muted" } }
-
-    local status = { "row", px = 8, py = 4,
-        { "text", st.message or st.root, size = "small", color = "muted", grow = true, truncate = true } }
-    if (st.busy or 0) > 0 then
-        status[#status + 1] = { "icon", name = "arrow_circle", size = "small", color = "muted" }
-    end
-    return { "col", w = "full", h = "full",
-        { "row", grow = true, left, { "divider", vertical = true }, right },
-        { "divider" },
-        status,
-    }
+    local status = (st.busy or 0) > 0 and "working…" or (st.message or st.root)
+    return { "panel", scroll = false, footer = status,
+        { "split", sidebar, sel and details(w, sel) or { "empty", "select a job or session" } } }
 end
 
 %ctor
@@ -262,7 +226,7 @@ end
         render = function(w)
             local ok, tree = pcall(render, w)
             if ok then return tree end
-            return { "text", "ycode-pull jobs: " .. tostring(tree), fg = "error" }
+            return { "empty", "ycode-pull jobs: " .. tostring(tree), color = "error" }
         end,
     }
 end
