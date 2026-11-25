@@ -37,6 +37,12 @@ the window. `pull` must be on ycode's PATH.
 - type into it, send ctrl-c, start/stop/restart, load or unload a job, remove a session
 - open it in `$TERMINAL` (via `pull session attach`)
 
+## Issues panel
+
+"pull: issues" toggles a right-dock panel with the open [haxy](https://github.com/jbisfun/haxy)
+issues of every repo (`pull haxy issues --json`): read one with its comments, close or reopen
+it, open haxy on the repo in `$TERMINAL`, or sync (`pull haxy sync`, also "pull: haxy sync").
+
 ## MCP
 
 In a pull workspace the plugin runs `pull mcp-servers` and registers every server it
