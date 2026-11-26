@@ -1,17 +1,17 @@
--- ycode-pull issues: haxy issues of the workspace repos, in a dock panel.
+-- ycode-pull issues: cpull issues of the workspace repos, in a dock panel.
 --
--- haxy (a local-first git forge) keeps issues on each repo's `haxy/events` branch.
--- The panel lists the open issues of every repo that has one (`pull haxy issues
+-- cpull (a local-first git forge) keeps issues on each repo's `cpull/events` branch.
+-- The panel lists the open issues of every repo that has one (`pull cpull issues
 -- --json`), grouped by repo; select one to read it with its comments, close or reopen
--- it, or open haxy's own UI on that repo in your terminal (`pull haxy open REPO`).
--- Sync (`pull haxy sync`) fetches, merges and pushes every repo's events. Toggle with
--- "pull: issues"; "pull: haxy sync" syncs without the panel.
+-- it, or open cpull's own UI on that repo in your terminal (`pull cpull open REPO`).
+-- Sync (`pull cpull sync`) fetches, merges and pushes every repo's events. Toggle with
+-- "pull: issues"; "pull: cpull sync" syncs without the panel.
 --
--- Stacks (a change across repos as one haxy patch per repo, landed together) head the
--- list when the workspace has an events repo (`pull haxy stacks --json`). Select one
--- to see its member patches and pins, merge it (`pull haxy merge ID`: merges every
--- member, then commits the pins to the pullfile), or open haxy over the whole
--- workspace (`pull haxy open`), whose web UI shows the stack pages.
+-- Stacks (a change across repos as one cpull patch per repo, landed together) head the
+-- list when the workspace has an events repo (`pull cpull stacks --json`). Select one
+-- to see its member patches and pins, merge it (`pull cpull merge ID`: merges every
+-- member, then commits the pins to the pullfile), or open cpull over the whole
+-- workspace (`pull cpull open`), whose web UI shows the stack pages.
 
 local util = require("pullutil")
 local q = util.sh_quote
@@ -35,14 +35,14 @@ end
 local function refresh(st)
     if st.loading or not root(st) then return end
     st.loading, st.last_refresh = true, socket.gettime()
-    ycode.spawn(util.pull_cmd(st.root, { "haxy", "issues", "--json" }), function(ok, out)
+    ycode.spawn(util.pull_cmd(st.root, { "cpull", "issues", "--json" }), function(ok, out)
         st.loading = false
         if not ok then st.error = out; return end
         local okj, data = pcall(ycode.json_decode, out)
         if okj and type(data) == "table" then st.data, st.error = util.strip_nulls(data), nil end
     end)
     -- fails (and the section stays hidden) when the workspace has no events repo
-    ycode.spawn(util.pull_cmd(st.root, { "haxy", "stacks", "--json" }), function(ok, out)
+    ycode.spawn(util.pull_cmd(st.root, { "cpull", "stacks", "--json" }), function(ok, out)
         if not ok then st.stacks = nil; return end
         local okj, data = pcall(ycode.json_decode, out)
         if okj and type(data) == "table" then st.stacks = util.strip_nulls(data).stacks or {} end
@@ -62,21 +62,21 @@ local function run(w, args, after)
 end
 
 local function sync(root_dir, done)
-    ycode.spawn(util.pull_cmd(root_dir, { "haxy", "sync" }) .. " 2>&1", function(ok, out)
+    ycode.spawn(util.pull_cmd(root_dir, { "cpull", "sync" }) .. " 2>&1", function(ok, out)
         out = out:gsub("%s+$", "")
-        shared.message = ok and (out ~= "" and out:gsub("\n", "; ") or "no repo has haxy/events") or out
+        shared.message = ok and (out ~= "" and out:gsub("\n", "; ") or "no repo has cpull/events") or out
         shared.failed, shared.synced = not ok, socket.gettime()
-        ycode.log("ycode-pull: haxy sync: " .. shared.message)
+        ycode.log("ycode-pull: cpull sync: " .. shared.message)
         if done then done(ok) end
     end)
 end
 
--- haxy on one repo, or over the whole workspace when `repo` is nil.
-local function open_haxy(w, repo)
+-- cpull on one repo, or over the whole workspace when `repo` is nil.
+local function open_cpull(w, repo)
     local st = w.state
-    local cmd = "cd " .. q(st.root) .. " && pull haxy open" .. (repo and " " .. q(repo) or "")
+    local cmd = "cd " .. q(st.root) .. " && pull cpull open" .. (repo and " " .. q(repo) or "")
     ycode.spawn(util.terminal_cmd(cmd), function(ok, out)
-        st.message = ok and ("opened haxy on " .. (repo or "the workspace") .. " in a terminal")
+        st.message = ok and ("opened cpull on " .. (repo or "the workspace") .. " in a terminal")
             or ("could not open a terminal: " .. out)
         st.failed = not ok
     end)
@@ -141,12 +141,12 @@ local function stack_details(w, s)
         local bar = { "toolbar",
             { "button", confirming and ("Merge " .. #(s.members or {}) .. " repos and pin") or "Merge",
               style = confirming and "filled" or "subtle", icon = "check",
-              tooltip = "Merge every member patch, then commit the pins (pull haxy merge)",
+              tooltip = "Merge every member patch, then commit the pins (pull cpull merge)",
               disabled = (st.busy or 0) > 0,
               on_click = function(w)
                   if st.confirm ~= s.id then st.confirm = s.id; return end
                   st.confirm = nil
-                  run(w, { "haxy", "merge", s.id })
+                  run(w, { "cpull", "merge", s.id })
               end } }
         if confirming then
             bar[#bar + 1] = { "button", "Cancel", on_click = function() st.confirm = nil end }
@@ -162,8 +162,8 @@ local function stack_details(w, s)
         members[#members + 1] = { "list_item", m.repo, detail = detail }
     end
     return { "panel", header = { title = s.title, context = s.status, actions = {
-        { "icon_button", icon = "terminal", tooltip = "Open the workspace in haxy (terminal)",
-          on_click = function(w) open_haxy(w, nil) end } } },
+        { "icon_button", icon = "terminal", tooltip = "Open the workspace in cpull (terminal)",
+          on_click = function(w) open_cpull(w, nil) end } } },
         body, members }
 end
 
@@ -186,10 +186,10 @@ local function details(w, repo, i)
     return { "panel", header = { title = i.title, context = i.status, actions = {
         { "icon_button", icon = closed and "rotate_ccw" or "check", tooltip = closed and "Reopen" or "Close",
           on_click = function(w)
-              run(w, { "haxy", closed and "reopen" or "close", repo.name, i.id })
+              run(w, { "cpull", closed and "reopen" or "close", repo.name, i.id })
           end },
-        { "icon_button", icon = "terminal", tooltip = "Open in haxy (terminal)",
-          on_click = function(w) open_haxy(w, repo.name) end } } },
+        { "icon_button", icon = "terminal", tooltip = "Open in cpull (terminal)",
+          on_click = function(w) open_cpull(w, repo.name) end } } },
         body }
 end
 
@@ -201,18 +201,18 @@ local function render(w)
 
     local repos = st.data and st.data.repos or {}
     local count = 0
-    local list = { "panel", id = "haxy-list" }
+    local list = { "panel", id = "cpull-list" }
     if st.stacks then
         local sec = { "section", "Stacks", empty = "no stacks",
-            action = { "icon_button", icon = "terminal", tooltip = "Open the workspace in haxy",
-                on_click = function(w) open_haxy(w, nil) end } }
+            action = { "icon_button", icon = "terminal", tooltip = "Open the workspace in cpull",
+                on_click = function(w) open_cpull(w, nil) end } }
         for _, s in ipairs(st.stacks) do sec[#sec + 1] = stack_row(w, s) end
         list[#list + 1] = sec
     end
     for _, r in ipairs(repos) do
         local sec = { "section", r.name, empty = "no open issues",
-            action = { "icon_button", icon = "terminal", tooltip = "Open " .. r.name .. " in haxy",
-                on_click = function(w) open_haxy(w, r.name) end } }
+            action = { "icon_button", icon = "terminal", tooltip = "Open " .. r.name .. " in cpull",
+                on_click = function(w) open_cpull(w, r.name) end } }
         for _, i in ipairs(r.issues or {}) do
             sec[#sec + 1] = issue_row(w, r, i)
             count = count + 1
@@ -220,7 +220,7 @@ local function render(w)
         list[#list + 1] = sec
     end
     if #repos == 0 then
-        list[#list + 1] = { "empty", st.data and "no repo has a haxy/events branch"
+        list[#list + 1] = { "empty", st.data and "no repo has a cpull/events branch"
             or (st.error or "loading…") }
     end
 
@@ -232,7 +232,7 @@ local function render(w)
     local status = (st.busy or 0) > 0 and "working…" or (st.message or shared.message or st.root)
     return { "panel", scroll = false,
         header = { title = "Issues", context = count .. " open", actions = {
-            { "icon_button", icon = "rotate_cw", tooltip = "Sync haxy/events (pull haxy sync)",
+            { "icon_button", icon = "rotate_cw", tooltip = "Sync cpull/events (pull cpull sync)",
               on_click = function(w)
                   st.busy = (st.busy or 0) + 1
                   st.message = nil
@@ -245,7 +245,7 @@ end
 
 %ctor
     gpui.register_panel{
-        id = "pull-haxy", title = "Issues", icon = "list_todo", position = "right", size = 420,
+        id = "pull-cpull", title = "Issues", icon = "list_todo", position = "right", size = 420,
         poll_ms = 500,
         state = {},
         render = function(w)
@@ -258,9 +258,9 @@ end
 
 %hook pull
 %new - Issues
-    ycode.dispatch("ycode::TogglePanel", { id = "pull-haxy" })
+    ycode.dispatch("ycode::TogglePanel", { id = "pull-cpull" })
 end
-%new - HaxySync
+%new - CpullSync
     local dir = util.find_root()
     if not dir then ycode.log("ycode-pull: " .. util.NO_ROOT); return end
     sync(dir)

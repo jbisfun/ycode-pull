@@ -39,9 +39,9 @@ the window. `pull` must be on ycode's PATH.
 
 ## Issues panel
 
-"pull: issues" toggles a right-dock panel with the open [haxy](https://github.com/jbisfun/haxy)
-issues of every repo (`pull haxy issues --json`): read one with its comments, close or reopen
-it, open haxy on the repo in `$TERMINAL`, or sync (`pull haxy sync`, also "pull: haxy sync").
+"pull: issues" toggles a right-dock panel with the open [cpull](https://github.com/jbisfun/cpull) (a fork of [haxy](https://github.com/xit-vcs/haxy))
+issues of every repo (`pull cpull issues --json`): read one with its comments, close or reopen
+it, open cpull on the repo in `$TERMINAL`, or sync (`pull cpull sync`, also "pull: cpull sync").
 
 ## MCP
 
