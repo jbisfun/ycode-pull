@@ -6,6 +6,12 @@
 -- it, or open haxy's own UI on that repo in your terminal (`pull haxy open REPO`).
 -- Sync (`pull haxy sync`) fetches, merges and pushes every repo's events. Toggle with
 -- "pull: issues"; "pull: haxy sync" syncs without the panel.
+--
+-- Stacks (a change across repos as one haxy patch per repo, landed together) head the
+-- list when the workspace has an events repo (`pull haxy stacks --json`). Select one
+-- to see its member patches and pins, merge it (`pull haxy merge ID`: merges every
+-- member, then commits the pins to the pullfile), or open haxy over the whole
+-- workspace (`pull haxy open`), whose web UI shows the stack pages.
 
 local util = require("pullutil")
 local q = util.sh_quote
@@ -35,6 +41,12 @@ local function refresh(st)
         local okj, data = pcall(ycode.json_decode, out)
         if okj and type(data) == "table" then st.data, st.error = util.strip_nulls(data), nil end
     end)
+    -- fails (and the section stays hidden) when the workspace has no events repo
+    ycode.spawn(util.pull_cmd(st.root, { "haxy", "stacks", "--json" }), function(ok, out)
+        if not ok then st.stacks = nil; return end
+        local okj, data = pcall(ycode.json_decode, out)
+        if okj and type(data) == "table" then st.stacks = util.strip_nulls(data).stacks or {} end
+    end)
 end
 
 local function run(w, args, after)
@@ -59,11 +71,13 @@ local function sync(root_dir, done)
     end)
 end
 
+-- haxy on one repo, or over the whole workspace when `repo` is nil.
 local function open_haxy(w, repo)
     local st = w.state
-    local cmd = "cd " .. q(st.root) .. " && pull haxy open " .. q(repo)
+    local cmd = "cd " .. q(st.root) .. " && pull haxy open" .. (repo and " " .. q(repo) or "")
     ycode.spawn(util.terminal_cmd(cmd), function(ok, out)
-        st.message = ok and ("opened haxy on " .. repo .. " in a terminal") or ("could not open a terminal: " .. out)
+        st.message = ok and ("opened haxy on " .. (repo or "the workspace") .. " in a terminal")
+            or ("could not open a terminal: " .. out)
         st.failed = not ok
     end)
 end
@@ -73,6 +87,12 @@ local function find(st)
         for _, i in ipairs(r.issues or {}) do
             if r.name == st.sel_repo and i.id == st.sel_id then return r, i end
         end
+    end
+end
+
+local function find_stack(st)
+    for _, s in ipairs(st.stacks or {}) do
+        if s.id == st.sel_stack then return s end
     end
 end
 
@@ -93,8 +113,58 @@ local function issue_row(w, repo, i)
     if #(i.labels or {}) > 0 then detail[#detail + 1] = table.concat(i.labels, " ") end
     if #(i.comments or {}) > 0 then detail[#detail + 1] = #i.comments .. " comments" end
     return { "list_item", i.title, detail = table.concat(detail, " · "), indent = 1,
-        selected = st.sel_repo == repo.name and st.sel_id == i.id,
-        on_click = function() st.sel_repo, st.sel_id = repo.name, i.id end }
+        selected = not st.sel_stack and st.sel_repo == repo.name and st.sel_id == i.id,
+        on_click = function() st.sel_repo, st.sel_id, st.sel_stack = repo.name, i.id, nil end }
+end
+
+local function stack_row(w, s)
+    local st = w.state
+    local repos = {}
+    for _, m in ipairs(s.members or {}) do repos[#repos + 1] = m.repo end
+    local detail = s.status .. " · " .. table.concat(repos, " ")
+    return { "list_item", s.title, detail = detail, indent = 1, selected = st.sel_stack == s.id,
+        on_click = function() st.sel_stack, st.confirm = s.id, nil end }
+end
+
+local function stack_details(w, s)
+    local st = w.state
+    local body = { "col", gap = "sm", px = "md", py = "sm",
+        { "text", s.id:sub(1, 8) .. " · " .. (s.author or "?") .. " · " .. date(s.created),
+          size = "small", color = "muted", truncate = true } }
+    if #(s.labels or {}) > 0 then
+        body[#body + 1] = { "text", table.concat(s.labels, " "), size = "small", color = "accent" }
+    end
+    lines(body, s.description ~= "" and s.description or "(no description)",
+        s.description == "" and { color = "muted" } or nil)
+    if s.status == "open" then
+        local confirming = st.confirm == s.id
+        local bar = { "toolbar",
+            { "button", confirming and ("Merge " .. #(s.members or {}) .. " repos and pin") or "Merge",
+              style = confirming and "filled" or "subtle", icon = "check",
+              tooltip = "Merge every member patch, then commit the pins (pull haxy merge)",
+              disabled = (st.busy or 0) > 0,
+              on_click = function(w)
+                  if st.confirm ~= s.id then st.confirm = s.id; return end
+                  st.confirm = nil
+                  run(w, { "haxy", "merge", s.id })
+              end } }
+        if confirming then
+            bar[#bar + 1] = { "button", "Cancel", on_click = function() st.confirm = nil end }
+        end
+        body[#body + 1] = bar
+    end
+    local pins = {}
+    for _, p in ipairs(s.pins or {}) do pins[p.repo] = p.commit end
+    local members = { "section", "Members", empty = "no members" }
+    for _, m in ipairs(s.members or {}) do
+        local detail = "patch " .. m.patch_id:sub(1, 8)
+        if pins[m.repo] then detail = detail .. " · pinned " .. pins[m.repo]:sub(1, 8) end
+        members[#members + 1] = { "list_item", m.repo, detail = detail }
+    end
+    return { "panel", header = { title = s.title, context = s.status, actions = {
+        { "icon_button", icon = "terminal", tooltip = "Open the workspace in haxy (terminal)",
+          on_click = function(w) open_haxy(w, nil) end } } },
+        body, members }
 end
 
 local function details(w, repo, i)
@@ -132,6 +202,13 @@ local function render(w)
     local repos = st.data and st.data.repos or {}
     local count = 0
     local list = { "panel", id = "haxy-list" }
+    if st.stacks then
+        local sec = { "section", "Stacks", empty = "no stacks",
+            action = { "icon_button", icon = "terminal", tooltip = "Open the workspace in haxy",
+                on_click = function(w) open_haxy(w, nil) end } }
+        for _, s in ipairs(st.stacks) do sec[#sec + 1] = stack_row(w, s) end
+        list[#list + 1] = sec
+    end
     for _, r in ipairs(repos) do
         local sec = { "section", r.name, empty = "no open issues",
             action = { "icon_button", icon = "terminal", tooltip = "Open " .. r.name .. " in haxy",
@@ -148,6 +225,10 @@ local function render(w)
     end
 
     local repo, issue = find(st)
+    local stack = find_stack(st)
+    local detail_pane = stack and stack_details(w, stack)
+        or (not st.sel_stack and issue and details(w, repo, issue))
+        or { "empty", "select an issue or a stack" }
     local status = (st.busy or 0) > 0 and "working…" or (st.message or shared.message or st.root)
     return { "panel", scroll = false,
         header = { title = "Issues", context = count .. " open", actions = {
@@ -159,7 +240,7 @@ local function render(w)
               end } } },
         footer = { "text", status, size = "small", truncate = true,
             color = (st.failed or (not st.message and shared.failed)) and "error" or "muted" },
-        { "split", list, issue and details(w, repo, issue) or { "empty", "select an issue" } } }
+        { "split", list, detail_pane } }
 end
 
 %ctor
