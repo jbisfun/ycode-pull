@@ -6,10 +6,15 @@
 -- apply; with nothing staged it commits all tracked changes (-a). Sync, update and push
 -- for the whole workspace. Zed's single-repository git panel button is hidden in pull
 -- workspaces, and every MCP server from `pull mcp-servers` (pull itself, plus the
--- pullfile's `mcp_servers` section, e.g. radar) is registered for ycode's agents.
+-- pullfile's `mcp_servers` section) is registered for ycode's agents.
+--
+-- Below the changes, cpull's CI (lib/pullci.lua): each idl project's status with
+-- build/test buttons, the active and recent jobs with a live log tail, cancel and retry,
+-- and links to the CI pages; repos with CI projects show their status next to the name.
 -- Toggle with "pull: changes".
 
 local util = require("pullutil")
+local ci = require("pullci")
 local socket = require("socket")
 
 local REFRESH_SECONDS = 2
@@ -100,9 +105,20 @@ local function repo_rows(w, repo, out)
         hover[#hover + 1] = { "icon_button", icon = "dash", tooltip = "Unstage all",
             on_click = function(w) run(w, { "unstage", repo.name }) end }
     end
+    local end_ = { "row", gap = "xs" }
+    local ci_status, ci_projects = ci.repo_status(ci.state(st), repo.name)
+    if ci_status then
+        local icon = ci.status_icon(ci_status, "xsmall")
+        end_[#end_ + 1] = icon
+    end
+    if #changes > 0 then
+        end_[#end_ + 1] = { "text", tostring(#changes), size = "small", color = "muted" }
+    end
     out[#out + 1] = { "list_item", repo.name, detail = info, bold = true, on_click = toggle,
+        tooltip = ci_status and ("CI: " .. ci_status .. " (" .. ci_projects .. " project"
+            .. (ci_projects == 1 and "" or "s") .. ")") or nil,
         start = { "disclosure", open = not collapsed, on_click = toggle },
-        end_ = #changes > 0 and { "text", tostring(#changes), size = "small", color = "muted" } or nil,
+        end_ = #end_ > 1 and end_ or nil,
         end_hover = #hover > 1 and hover or nil }
     if not collapsed then
         for _, c in ipairs(changes) do out[#out + 1] = change_row(w, repo, c) end
@@ -157,12 +173,17 @@ local function render(w)
             { "text", st.message or st.root, size = "small", truncate = true,
               color = st.failed and "error" or "muted" } },
     }
+    local ci_sections = ci.sections(st, st.root, function(_, ok, msg)
+        st.message, st.failed = msg, not ok
+    end)
     if #rows == 0 then
-        panel[#panel + 1] = { "empty", st.data and ("no changes in " .. #(data.repos or {}) .. " repos")
-            or (st.error or "loading…") }
+        local msg = st.data and ("no changes in " .. #(data.repos or {}) .. " repos")
+            or (st.error or "loading…")
+        panel[#panel + 1] = #ci_sections == 0 and { "empty", msg } or { "section", "Changes", empty = msg }
     else
         for _, r in ipairs(rows) do panel[#panel + 1] = r end
     end
+    for _, sec in ipairs(ci_sections) do panel[#panel + 1] = sec end
     return panel
 end
 
@@ -183,7 +204,7 @@ end
     -- Once a pull workspace is open (folders appear after startup; retry for a while):
     -- hide Zed's git panel (one repository at a time; this panel replaces it) and
     -- register every MCP server the pullfile configures (`pull mcp-servers --json`:
-    -- `pull` itself, plus the `mcp_servers` section, e.g. radar), which ycode's agent
+    -- `pull` itself, plus the `mcp_servers` section), which ycode's agent
     -- uses and forwards to ACP agents such as Hermes.
     local tries = 0
     local function setup()

@@ -12,6 +12,10 @@
 -- to see its member patches and pins, merge it (`pull cpull merge ID`: merges every
 -- member, then commits the pins to the pullfile), or open cpull over the whole
 -- workspace (`pull cpull open`), whose web UI shows the stack pages.
+--
+-- The workspace server's web UI (address from `.pull/cpull/serve.addr`) opens in the
+-- browser: an issue's page from its header, and "pull: open file in cpull" opens the
+-- active editor's file at the cursor line in the files view.
 
 local util = require("pullutil")
 local q = util.sh_quote
@@ -80,6 +84,17 @@ local function open_cpull(w, repo)
             or ("could not open a terminal: " .. out)
         st.failed = not ok
     end)
+end
+
+-- `url` in the browser, the result in the footer.
+local function open_web(w, url)
+    local st = w.state
+    util.open_url(url, function(ok, msg) st.message, st.failed = msg, not ok end)
+end
+
+local function issue_url(root, repo, id)
+    return util.cpull_base(root) .. "/" .. util.cpull_owner(root) .. ":" .. repo:gsub("/", ".")
+        .. "/issue:" .. id
 end
 
 local function find(st)
@@ -168,6 +183,7 @@ local function stack_details(w, s)
 end
 
 local function details(w, repo, i)
+    local st = w.state
     local closed = i.status == "closed"
     local body = { "col", gap = "sm", px = "md", py = "sm",
         { "text", i.id:sub(1, 8) .. " · " .. (i.author or "?") .. " · " .. date(i.created),
@@ -188,6 +204,8 @@ local function details(w, repo, i)
           on_click = function(w)
               run(w, { "cpull", closed and "reopen" or "close", repo.name, i.id })
           end },
+        { "icon_button", icon = "public", tooltip = "Open in the browser",
+          on_click = function(w) open_web(w, issue_url(st.root, repo.name, i.id)) end },
         { "icon_button", icon = "terminal", tooltip = "Open in cpull (terminal)",
           on_click = function(w) open_cpull(w, repo.name) end } } },
         body }
@@ -259,6 +277,17 @@ end
 %hook pull
 %new - Issues
     ycode.dispatch("ycode::TogglePanel", { id = "pull-cpull" })
+end
+%new - OpenFileInCpull
+    local dir = util.find_root()
+    if not dir then ycode.log("ycode-pull: " .. util.NO_ROOT); return end
+    ycode.selection(function(sel)
+        if not sel then shared.message, shared.failed = "no file editor is active", true; return end
+        util.open_file_in_cpull(dir, sel.path, sel.line, function(ok, msg)
+            shared.message, shared.failed = msg, not ok
+            ycode.log("ycode-pull: " .. msg)
+        end)
+    end)
 end
 %new - CpullSync
     local dir = util.find_root()
