@@ -51,15 +51,23 @@ function M.terminal_cmd(cmd)
         .. 'setsid -f "$@" sh -c ' .. M.sh_quote(cmd) .. " >/dev/null 2>&1"
 end
 
---- The cpull workspace server's base URL ("http://HOST:PORT"): the address it wrote to
--- `.pull/cpull/serve.addr`, else $CPULL_ADDR, else cpull's default 127.0.0.1:8080.
-function M.cpull_base(root)
-    local addr
-    local f = root and io.open(root .. "/.pull/cpull/serve.addr")
-    if f then addr = (f:read("a") or ""):match("^%s*(.-)%s*$"); f:close() end
-    if not addr or addr == "" then addr = os.getenv("CPULL_ADDR") end
-    if not addr or addr == "" then addr = "127.0.0.1:8080" end
+--- A workspace tool's base URL ("http://HOST:PORT"; theme docs/workspace-tools.md):
+-- its env var ($CPULL_ADDR, $IDLCI_ADDR, $WIKI_ADDR, $RADAR_ADDR), else the address its
+-- server wrote to `.pull/<tool>/serve.addr`, else its default port.
+M.TOOL_DEFAULTS = { cpull = "127.0.0.1:8080", idlci = "127.0.0.1:8737", wiki = "127.0.0.1:8090", radar = "127.0.0.1:8746" }
+function M.tool_base(root, tool)
+    local addr = os.getenv(tool:upper() .. "_ADDR")
+    if not addr or addr == "" then
+        local f = root and io.open(root .. "/.pull/" .. tool .. "/serve.addr")
+        if f then addr = (f:read("a") or ""):match("^%s*(.-)%s*$"); f:close() end
+    end
+    if not addr or addr == "" then addr = M.TOOL_DEFAULTS[tool] end
     return "http://" .. addr
+end
+
+--- The cpull workspace server's base URL (`tool_base(root, "cpull")`).
+function M.cpull_base(root)
+    return M.tool_base(root, "cpull")
 end
 
 --- The owner part of the workspace's cpull repo identities ("<owner>:<repo>"): the root's

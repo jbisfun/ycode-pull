@@ -29,12 +29,12 @@ the window. `pull` must be on ycode's PATH.
 - Click a file to open it; tick it (or a repo) to stage via `pull add` / `pull unstage`.
 - Commit runs `pull commit` (`-a` if nothing is staged), with the pullfile's lint and hooks.
 - Sync, Update and Push act on the whole workspace. Zed's git panel is hidden.
-- CI ([cpull](https://github.com/jbisfun/cpull)'s, run by the workspace server
-  `pull cpull open --web-listen ADDR`): every idl project with its last result, hover to
+- CI ([idlci](https://github.com/jbisfun/idlci), the workspace's own pull job
+  `idlci serve`): every idl project with its last result, hover to
   queue a build or the tests; the active and recent jobs, click one for a live log tail,
-  hover to cancel or retry. Globe buttons open the CI pages in the browser. Repos with CI
-  projects show their status next to the name. It reads `/ci/api` at the address in
-  `.pull/cpull/serve.addr` (curl) and writes through `cpull ci`, so `curl` and `cpull`
+  hover to cancel or retry. Globe buttons open idlci's pages in the browser. Repos with CI
+  projects show their status next to the name. It reads idlci's `/api` at the address in
+  `.pull/idlci/serve.addr` (curl) and writes through the `idlci` CLI, so `curl` and `idlci`
   must be on ycode's PATH.
 
 ## Jobs panel

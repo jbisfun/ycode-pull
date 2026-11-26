@@ -8,7 +8,7 @@
 -- workspaces, and every MCP server from `pull mcp-servers` (pull itself, plus the
 -- pullfile's `mcp_servers` section) is registered for ycode's agents.
 --
--- Below the changes, cpull's CI (lib/pullci.lua): each idl project's status with
+-- Below the changes, the workspace CI, idlci (lib/pullci.lua): each idl project's status with
 -- build/test buttons, the active and recent jobs with a live log tail, cancel and retry,
 -- and links to the CI pages; repos with CI projects show their status next to the name.
 -- Toggle with "pull: changes".

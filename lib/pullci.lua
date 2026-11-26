@@ -1,6 +1,7 @@
---- cpull's CI for ycode-pull: reads the workspace server's JSON API (`/ci/api`, at the
--- address in `.pull/cpull/serve.addr`) and queues/cancels/retries through the
--- `cpull ci` CLI, which checks that the server it reaches serves this workspace.
+--- The workspace CI (idlci) for ycode-pull: reads idlci's JSON API (`/api`, at the
+-- address in `.pull/idlci/serve.addr`; theme docs/workspace-tools.md §5) and
+-- queues/cancels/retries through the `idlci` CLI, which checks that the server it
+-- reaches serves this workspace.
 -- @module pullci
 local util = require("pullutil")
 local socket = require("socket")
@@ -26,8 +27,12 @@ M.STATUS_ICON = {
     cancelled = { "dash", "muted" },
 }
 
+local function base(root)
+    return util.tool_base(root, "idlci")
+end
+
 local function curl(root, path)
-    return "curl -sS --fail-with-body --max-time 5 " .. util.sh_quote(util.cpull_base(root) .. path)
+    return "curl -sS --fail-with-body --max-time 5 " .. util.sh_quote(base(root) .. path)
 end
 
 local function decode(out)
@@ -35,15 +40,15 @@ local function decode(out)
     if ok and type(v) == "table" then return util.strip_nulls(v) end
 end
 
---- `cpull ci ARGS --root ROOT` as a shell command line.
+--- `idlci ARGS --root ROOT` as a shell command line.
 function M.cli_cmd(root, args)
     local argv = {}
     for i, a in ipairs(args) do argv[i] = util.sh_quote(a) end
-    return "cd " .. util.sh_quote(root) .. " && cpull ci " .. table.concat(argv, " ")
+    return "cd " .. util.sh_quote(root) .. " && idlci " .. table.concat(argv, " ")
         .. " --root " .. util.sh_quote(root)
 end
 
---- Run `cpull ci ARGS`; `done(ok, last_line)` on the main thread.
+--- Run `idlci ARGS`; `done(ok, last_line)` on the main thread.
 function M.cli(root, args, done)
     ycode.spawn(M.cli_cmd(root, args) .. " 2>&1", function(ok, out)
         out = (out or ""):gsub("%s+$", "")
@@ -63,18 +68,18 @@ function M.refresh(ci, root, force)
     if ci.loading or not root or (not force and now - (ci.at or 0) < M.REFRESH_SECONDS) then return end
     ci.loading, ci.at = 2, now
     local function landed() ci.loading = ci.loading - 1; if ci.loading == 0 then ci.loading = nil end end
-    ycode.spawn(curl(root, "/ci/api/projects") .. " 2>&1", function(ok, out)
+    ycode.spawn(curl(root, "/api/projects") .. " 2>&1", function(ok, out)
         landed()
         local v = ok and decode(out)
         if v then
             ci.projects, ci.error = v, nil
         else
             ci.projects = nil
-            ci.error = "the cpull server isn't running at " .. util.cpull_base(root)
-                .. " (pull cpull open --web-listen ADDR)"
+            ci.error = "idlci isn't running at " .. base(root)
+                .. " (pull launchctl start idlci)"
         end
     end)
-    ycode.spawn(curl(root, "/ci/api/jobs?limit=30") .. " 2>/dev/null", function(ok, out)
+    ycode.spawn(curl(root, "/api/jobs?limit=30") .. " 2>/dev/null", function(ok, out)
         landed()
         local v = ok and decode(out)
         if v then ci.jobs = v end
@@ -88,7 +93,7 @@ function M.tail(ci, root, id)
     local now = socket.gettime()
     if t.loading or (t.at and (t.final or now - t.at < M.TAIL_SECONDS)) then return t end
     t.loading, t.at = true, now
-    ycode.spawn(curl(root, "/ci/api/jobs/" .. id .. "/log?tail=" .. M.TAIL_LINES), function(ok, out)
+    ycode.spawn(curl(root, "/api/jobs/" .. id .. "/log?tail=" .. M.TAIL_LINES), function(ok, out)
         t.loading = false
         local v = ok and decode(out)
         if v then
@@ -160,10 +165,10 @@ end
 
 --- URLs of the CI pages: dashboard, a project's, a job's (live console).
 function M.url(root, kind, arg)
-    local base = util.cpull_base(root) .. "/ci"
-    if kind == "project" then return base .. "/projects/" .. util.url_encode(arg, true) end
-    if kind == "job" then return base .. "/jobs/" .. arg end
-    return base
+    local b = base(root)
+    if kind == "project" then return b .. "/projects/" .. util.url_encode(arg, true) end
+    if kind == "job" then return b .. "/jobs/" .. arg end
+    return b .. "/"
 end
 
 --- The panel's CI sections: "CI" lists the projects (status, hover: build, test, open
@@ -196,9 +201,9 @@ function M.sections(st, root, act)
             start = M.status_icon(s),
             end_ = p.health and { "text", p.health .. "%", size = "small", color = "muted" } or nil,
             end_hover = { "row",
-                { "icon_button", icon = "tool_hammer", tooltip = "Queue a build (cpull ci queue " .. p.path .. " build)",
+                { "icon_button", icon = "tool_hammer", tooltip = "Queue a build (idlci queue " .. p.path .. " build)",
                   on_click = cli({ "queue", p.path, "build" }) },
-                { "icon_button", icon = "play_outlined", tooltip = "Queue the tests (cpull ci queue " .. p.path .. " test)",
+                { "icon_button", icon = "play_outlined", tooltip = "Queue the tests (idlci queue " .. p.path .. " test)",
                   on_click = cli({ "queue", p.path, "test" }) },
                 { "icon_button", icon = "public", tooltip = "Open the project page in the browser",
                   on_click = open(M.url(root, "project", p.path)) } },
